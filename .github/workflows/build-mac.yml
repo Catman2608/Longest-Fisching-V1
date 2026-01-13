@@ -1,0 +1,22 @@
+name: Build macOS DMG
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: |
+          pip install pyinstaller
+          pyinstaller --windowed FischV14.py
+
+      - run: |
+          hdiutil create LongestFischingV1.dmg -srcfolder dist
