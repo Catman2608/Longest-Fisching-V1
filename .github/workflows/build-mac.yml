@@ -8,15 +8,36 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - run: |
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
           pip install pyinstaller
-          pyinstaller --windowed FischV14.py
 
-      - run: |
-          hdiutil create LongestFischingV1.dmg -srcfolder dist
+      - name: Build macOS app
+        run: |
+          pyinstaller --windowed FischV14.py
+          ls dist
+
+      - name: Create DMG
+        run: |
+          hdiutil create \
+            -volname "LongestFisching" \
+            -srcfolder dist \
+            -ov \
+            -format UDZO \
+            LongestFisching.dmg
+          ls -lh LongestFisching.dmg
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macOS-DMG
+          path: LongestFisching.dmg
