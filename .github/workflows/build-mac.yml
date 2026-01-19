@@ -16,7 +16,7 @@ jobs:
 
       - run: |
           pip install pyinstaller
-          pyinstaller --windowed FischV14.py
+          pyinstaller --windowed FischV1.py
 
       - run: |
           hdiutil create LongestFischingV1.dmg -srcfolder dist

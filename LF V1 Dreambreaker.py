@@ -21,9 +21,12 @@ import mss
 import mss.tools
 from PIL import Image
 ## OpenCV for advanced arrow tracking (optional)
-import numpy as np
-from collections import deque
-import statistics
+try:
+    import cv2
+    import numpy as np
+    CV_AVAILABLE = True
+except ImportError:
+    CV_AVAILABLE = False
 mouse_down = False
 ## Save and Load Configs
 import json
@@ -63,7 +66,7 @@ try:
 except:
     pass
 
-window.title("Fisch V14")
+window.title("Fisch V1")
 window.geometry("800x550")
 
 window.config(bg="#1d1d1d")
@@ -268,37 +271,7 @@ tab3.bind("<MouseWheel>", _on_mousewheel_tab3)
 # Third tab adding
 notebook.add(tab3_container, text="Minigame Settings")
 
-# === Classes and functions ===
-class ArrowEdgeSampler:
-    def __init__(self, max_samples=12):
-        self.left_samples = deque(maxlen=max_samples)
-        self.right_samples = deque(maxlen=max_samples)
-
-    def update(self, arrow_x, is_holding):
-        if arrow_x is None:
-            return
-
-        if is_holding:
-            self.left_samples.append(arrow_x)
-        else:
-            self.right_samples.append(arrow_x)
-
-    def get_edges(self):
-        if len(self.left_samples) < 3 or len(self.right_samples) < 3:
-            return None, None
-
-        left = int(statistics.mean(self.left_samples))
-        right = int(statistics.mean(self.right_samples))
-
-        # Sanity check
-        if left >= right:
-            return None, None
-
-        return left, right
-
-    def reset(self):
-        self.left_samples.clear()
-        self.right_samples.clear()
+# === Buttons ===
 def show_overlay_simple():
     global overlay
     global tooltip_labels
@@ -336,7 +309,7 @@ def show_overlay_simple():
     # === Text ===
     Label(
         overlay,
-        text="Fisch Macro V14",
+        text="Fisch Macro V1",
         fg="#00c8ff",
         bg="black",
         font=("Segoe UI", 12, "bold")
@@ -759,41 +732,47 @@ def get_bar_edges_image(img, start_x, start_y, bar_b=255, bar_g=255, bar_r=255, 
 
     return left_edge, right_edge
 
-def find_arrow_centroid_np(img, arrow_r, arrow_g, arrow_b, tolerance=15, min_pixels=8):
+def find_arrow_centroid_cv(img, arrow_b, arrow_g, arrow_r, arrow_tolerance=15, min_area=5):
     """
-    Finds arrow centroid using pure NumPy (no OpenCV).
-    Returns X coordinate or None.
+    Finds the centroid (center) of the arrow using OpenCV contour detection.
+    Based on IRUS v675 reference implementation. (Thanks Asphalt Cake!)
+    Returns the X coordinate of the arrow tip or None if not found.
     """
-
+    if not CV_AVAILABLE:
+        return None
+    
     try:
-        # Convert PIL → NumPy RGB
-        arr = np.array(img)
-
-        # Split channels
-        r = arr[:, :, 0]
-        g = arr[:, :, 1]
-        b = arr[:, :, 2]
-
-        # Build color mask
-        mask = (
-            (np.abs(r - arrow_r) <= tolerance) &
-            (np.abs(g - arrow_g) <= tolerance) &
-            (np.abs(b - arrow_b) <= tolerance)
-        )
-
-        if not np.any(mask):
+        # Convert PIL image to OpenCV format
+        cv_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+        
+        # Create mask for arrow color using tolerance
+        lower = np.array([arrow_b - arrow_tolerance, arrow_g - arrow_tolerance, arrow_r - arrow_tolerance])
+        upper = np.array([arrow_b + arrow_tolerance, arrow_g + arrow_tolerance, arrow_r + arrow_tolerance])
+        
+        mask = cv2.inRange(cv_img, lower, upper)
+        
+        # Find contours
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if not contours:
             return None
-
-        # Get coordinates of all matching pixels
-        ys, xs = np.where(mask)
-
-        if len(xs) < min_pixels:
+        
+        # Get the largest contour (arrow tip)
+        largest_contour = max(contours, key=cv2.contourArea)
+        
+        # Check if contour area is significant
+        if cv2.contourArea(largest_contour) < min_area:
             return None
-
-        # Centroid X
-        return int(xs.mean())
-
+        
+        # Calculate centroid using moments
+        M = cv2.moments(largest_contour)
+        if M["m00"] != 0:
+            centroid_x = int(M["m10"] / M["m00"])
+            return centroid_x
+        
+        return None
     except Exception:
+        # Fallback to None if something goes wrong
         return None
 
 def estimate_box_from_arrow(arrow_x, is_holding, last_box_size=None, default_box_width=200):
@@ -876,22 +855,38 @@ def capture_region(start_x, start_y, end_x, end_y):
             img = sct.grab(monitor)
             return Image.frombytes("RGB", img.size, img.rgb)
 
+last_focus_time = 0
+
 def force_game_focus():
+    global last_focus_time
+
+    # Prevent spam (macOS needs this)
+    if time.time() - last_focus_time < 2.0:
+        return
+
+    last_focus_time = time.time()
+
     if system == "Windows":
         user32 = ctypes.windll.user32
         hwnd = user32.GetForegroundWindow()
         user32.SwitchToThisWindow(hwnd, True)
-        time.sleep(0.05)
+        time.sleep(0.1)
 
     elif system == "Darwin":
-        # Simulate Cmd+Tab to switch back to previous app (Roblox)
+        # Cmd+Tab with macOS-safe timing
         keyboard.press(Key.cmd)
-        keyboard.press(Key.tab)
-        time.sleep(0.05)
-        keyboard.release(Key.tab)
-        keyboard.release(Key.cmd)
+        time.sleep(0.2)
 
-    time.sleep(0.1)
+        keyboard.press(Key.tab)
+        time.sleep(0.2)
+
+        keyboard.release(Key.tab)
+        time.sleep(0.15)
+
+        keyboard.release(Key.cmd)
+        time.sleep(0.3)
+
+    time.sleep(0.3)
 
 def restart_macro():
     global macro_running
@@ -987,8 +982,7 @@ def macro_loop(event=None):
     bar_tolerance = int(bar_tolerance_entry.get())
     arrow_tolerance = int(arrow_tolerance_entry.get())
     fish_tolerance = int(fish_tolerance_entry.get())
-    arrow_sampler = ArrowEdgeSampler()
-    ToolTip("Fisch V14 by Longest", 1)
+    ToolTip("Fisch V1 by Longest", 1)
     ToolTip("Press F7 to stop", 2)
     ToolTip("Beginning Alignment", 3)
     try:
@@ -1104,155 +1098,318 @@ def macro_loop(event=None):
         max_left = 0
         max_right = 0
         # --- Fishing bar loop ---
-        bar_size = None
         while macro_running:
-            ToolTip("Playing Bar Minigame", 3)
             clear_minigame()
-            img = capture_region(520, 860, 1400, 910)
-            fish_pos = pixel_search_image(img, 570, 860, (fish_b, fish_g, fish_r), fish_tolerance)  # Get fish position
-            if fish_pos is None:
-                fish_miss_count += 1
-
-                # release mouse briefly to avoid stuck input
-                set_mouse(False)
-                mouse.release(MouseButton.left)
-
-                if fish_miss_count >= MAX_FISH_MISSES:
-                    set_mouse(False)
-                    time.sleep(restart_delay / 2)
-                    mouse.position = (960, 300)
-                    mouse.release(MouseButton.left)
-                    time.sleep(restart_delay / 2)
-                    restart_macro()
-                    return
-
-                time.sleep(0.02)
-                continue
+            img2 = capture_region(899, 962, 929, 1022)  # Capture friend xp area
+            progress_bar_size2 = pixel_search_image(img2, 570, 860, (12, 10, 15), fish_tolerance)
+            if progress_bar_size2:
+                progress_bar_size = 777
             else:
-                fish_miss_count = 0
-
-            left_edge, right_edge = get_bar_edges_image(img, 570, 860, bar_b, bar_g, bar_r, rightbar_b, rightbar_g, rightbar_r, bar_tolerance) # Get bar edges
-            arrow = None
-            arrow_right = None
-            arrow = pixel_search_image(img, 570, 860, (arrow_b, arrow_g, arrow_r), arrow_tolerance)  # Get arrow position
-            # Advanced arrow tracking: use arrow position with contour-based detection
-            if stability_checkbox_vars["advanced_arrow_tracking"].get() and arrow:
-                arrow_x = find_arrow_centroid_np(
-                    img,
-                    arrow_r,
-                    arrow_g,
-                    arrow_b,
-                    arrow_tolerance
-                )
-
-                arrow_sampler.update(
-                    arrow_x,
-                    is_holding=mouse_down
-                )
-
-                est_left, est_right = arrow_sampler.get_edges()
-
-                if est_left is not None:
-                    if left_edge is None or right_edge is None:
-                        left_edge, right_edge = est_left, est_right
-                    else:
-                        # Blend for stability (IRUS-style)
-                        left_edge = int(0.8 * left_edge + 0.2 * est_left)
-                        right_edge = int(0.8 * right_edge + 0.2 * est_right)
-
-            bar_size = abs(right_edge - left_edge) if left_edge and right_edge else None
-            control = (bar_size / 777) - 0.3 if bar_size else 0
-            control = (round(control * 100)) / 100.0
-            deadzone = bar_size * left_right_deadzone if bar_size else None
-            ToolTip(f"Control: {control}", 5)
-            if bar_size:
-                max_left = 570 + deadzone
-                max_right = 1350 - deadzone
-            else:
-                max_left = None
-                max_right = None
-            fish_edge = fish_pos[0] + 10
-            # convert screen → canvas space
-            cx1 = fish_pos[0] - CANVAS_X_OFFSET
-            cx2 = fish_edge - CANVAS_X_OFFSET
-            # Action 1 and 2: Max left and max right
-            if max_left and fish_pos[0] <= max_left:
-                set_mouse(False)
-                # Draw deadzones and tooltips
-                ToolTip("Direction: Max Left", 4)
-                dx1 = max_left - 20 - CANVAS_X_OFFSET
-                dx2 = max_left - CANVAS_X_OFFSET
-                draw_box(dx1, 10, dx2, 40, "#000000", "blue")
-
-            elif max_right and fish_pos[0] >= max_right:
-                set_mouse(True)
-                # Draw deadzones and tooltips
-                ToolTip("Direction: Max Right", 4)
-                dx3 = max_right - CANVAS_X_OFFSET
-                dx4 = max_right + 20 - CANVAS_X_OFFSET
-                draw_box(dx3, 10, dx4, 40, "#000000", "blue")
-
-            # Action 0, 3 and 4: PID Control
-            elif left_edge is not None and right_edge is not None:
-                bar_center = (left_edge + right_edge) // 2
-                bx1 = left_edge - CANVAS_X_OFFSET
-                bx2 = right_edge - CANVAS_X_OFFSET
-                draw_box(bx1, 10, bx2, 40, "#000000", "green")
-                # Draw deadzones
-                dx1 = max_left - 20 - CANVAS_X_OFFSET
-                dx2 = max_left - CANVAS_X_OFFSET
-                draw_box(dx1, 10, dx2, 40, "#000000", "blue")
-                dx3 = max_right - CANVAS_X_OFFSET
-                dx4 = max_right + 20 - CANVAS_X_OFFSET
-                draw_box(dx3, 10, dx4, 40, "#000000", "blue")
-                # PID calculation
-                error = fish_pos[0] - bar_center
-                control = pid_control(error)
-
-                # Map PID output to mouse clicks using hysteresis to avoid jitter/oscillation
-                control = max(-100, min(100, control))
-
-                # Hysteresis thresholds (tune if necessary)
-                on_thresh = velocity_smoothing_left
-                off_thresh = velocity_smoothing_right
-
-                if control > on_thresh:
-                    set_mouse(True)
-                    ToolTip("Tracking Direction: >", 4)
-                elif control < -on_thresh:
-                    set_mouse(False)
-                    ToolTip("Tracking Direction: <", 4)
-                else:
-                    # Action 0: Within deadzone
-                    if abs(control) < off_thresh:
-                        set_mouse(False)
-                        ToolTip("Stabilizing", 4)
-
-            # Action 5 and 6: Failback (Arrow only)
-            elif arrow:
-                distance = arrow[0] - fish_pos[0]
-                if distance < -6:
-                    set_mouse(distance < -6)
-                    ToolTip("Tracking Direction: > (Fast)", 4)
-                else:
-                    set_mouse(distance < -6)
-                    ToolTip("Tracking Direction: < (Fast)", 4)
-
-            # Action 7 (hidden): No bar, no arrow
-            else:
-                set_mouse(False)
-                ToolTip("Tracking Direction: < (None)", 4)
-
-            # --- Draw fish and arrow box ---
-            if left_edge is None and right_edge is None and arrow is not None:
-                arrow_right = arrow[0] + 15
-                ax1 = arrow[0] - CANVAS_X_OFFSET
-                ax2 = arrow_right - CANVAS_X_OFFSET
-                draw_box(ax1, 15, ax2, 35, "#000000", "yellow")
-
-            draw_box(cx1, 10, cx2, 40, "#000000", "red")
-            # Debug code
+                progress_bar_size = 0
+            ToolTip(f"Progress bar size: {progress_bar_size}", 5)
             time.sleep(scan_fps)
+            if progress_bar_size >= 160:
+                img = capture_region(520, 860, 1400, 910)
+                fish_pos = pixel_search_image(img, 570, 860, (fish_b, fish_g, fish_r), fish_tolerance)  # Get fish position
+                if fish_pos is None:
+                    fish_miss_count += 1
+
+                    # release mouse briefly to avoid stuck input
+                    set_mouse(False)
+                    mouse.release(MouseButton.left)
+
+                    if fish_miss_count >= MAX_FISH_MISSES:
+                        set_mouse(False)
+                        time.sleep(restart_delay / 2)
+                        mouse.position = (960, 300)
+                        mouse.release(MouseButton.left)
+                        time.sleep(restart_delay / 2)
+                        restart_macro()
+                        return
+
+                    time.sleep(0.02)
+                    continue
+                else:
+                    fish_miss_count = 0
+
+                left_edge, right_edge = get_bar_edges_image(img, 570, 860, bar_b, bar_g, bar_r, rightbar_b, rightbar_g, rightbar_r, bar_tolerance) # Get bar edges
+
+                arrow = None
+                arrow_right = None
+                arrow = pixel_search_image(img, 570, 860, (arrow_b, arrow_g, arrow_r), arrow_tolerance)  # Get arrow position
+                # Advanced arrow tracking: use arrow position with contour-based detection
+                if stability_checkbox_vars["advanced_arrow_tracking"].get() and arrow:
+                    try:
+                        # Use OpenCV-based centroid detection for more accurate arrow tracking
+                        arrow_centroid = find_arrow_centroid_cv(img, arrow_b, arrow_g, arrow_r, arrow_tolerance)
+                        
+                        if arrow_centroid is not None:
+                            # Estimate box edges based on arrow position and hold state
+                            estimated_left, estimated_right = estimate_box_from_arrow(
+                                arrow_centroid, 
+                                is_holding=mouse_down,
+                                last_box_size=bar_size
+                            )
+                            
+                            # Use estimated edges if bar edges weren't reliable
+                            if estimated_left is not None and estimated_right is not None:
+                                if left_edge is None or right_edge is None:
+                                    left_edge = estimated_left
+                                    right_edge = estimated_right
+                                else:
+                                    # Blend with detected bar edges for robustness
+                                    left_edge = int(0.7 * left_edge + 0.3 * estimated_left)
+                                    right_edge = int(0.7 * right_edge + 0.3 * estimated_right)
+                    except Exception:
+                        # Fall back silently if contour detection fails
+                        pass
+                bar_size = abs(right_edge - left_edge) if left_edge and right_edge else None
+                control = (bar_size / 777) - 0.3 if bar_size else 0
+                control = (round(control * 100)) / 100.0
+                deadzone = bar_size * left_right_deadzone if bar_size else None
+                # ToolTip(f"Control: {control}", 5)
+                if bar_size:
+                    max_left = 570 + deadzone
+                    max_right = 1350 - deadzone
+                else:
+                    max_left = None
+                    max_right = None
+                fish_edge = fish_pos[0] + 10
+                # convert screen → canvas space
+                cx1 = fish_pos[0] - CANVAS_X_OFFSET
+                cx2 = fish_edge - CANVAS_X_OFFSET
+                # Action 1 and 2: Max left and max right
+                if max_left and fish_pos[0] <= max_left:
+                    set_mouse(True)
+                    # Draw deadzones and tooltips
+                    ToolTip("Direction: Max Left", 4)
+                    dx1 = max_left - 20 - CANVAS_X_OFFSET
+                    dx2 = max_left - CANVAS_X_OFFSET
+                    draw_box(dx1, 10, dx2, 40, "#000000", "blue")
+
+                elif max_right and fish_pos[0] >= max_right:
+                    set_mouse(False)
+                    # Draw deadzones and tooltips
+                    ToolTip("Direction: Max Right", 4)
+                    dx3 = max_right - CANVAS_X_OFFSET
+                    dx4 = max_right + 20 - CANVAS_X_OFFSET
+                    draw_box(dx3, 10, dx4, 40, "#000000", "blue")
+
+                # Action 0, 3 and 4: PID Control
+                elif left_edge is not None and right_edge is not None:
+                    bar_center = (left_edge + right_edge) // 2
+                    bx1 = left_edge - CANVAS_X_OFFSET
+                    bx2 = right_edge - CANVAS_X_OFFSET
+                    draw_box(bx1, 10, bx2, 40, "#000000", "green")
+                    # Draw deadzones
+                    dx1 = max_left - 20 - CANVAS_X_OFFSET
+                    dx2 = max_left - CANVAS_X_OFFSET
+                    draw_box(dx1, 10, dx2, 40, "#000000", "blue")
+                    dx3 = max_right - CANVAS_X_OFFSET
+                    dx4 = max_right + 20 - CANVAS_X_OFFSET
+                    draw_box(dx3, 10, dx4, 40, "#000000", "blue")
+                    # PID calculation
+                    error = fish_pos[0] - bar_center
+                    control = pid_control(error)
+
+                    # Map PID output to mouse clicks using hysteresis to avoid jitter/oscillation
+                    control = max(-100, min(100, control))
+
+                    # Hysteresis thresholds (tune if necessary)
+                    on_thresh = velocity_smoothing_left
+                    off_thresh = velocity_smoothing_right
+
+                    if control > on_thresh:
+                        set_mouse(False)
+                        ToolTip("Tracking Direction: >", 4)
+                    elif control < -on_thresh:
+                        set_mouse(True)
+                        ToolTip("Tracking Direction: <", 4)
+                    else:
+                        # Action 0: Within deadzone
+                        if abs(control) < off_thresh:
+                            set_mouse(True)
+                            ToolTip("Stabilizing", 4)
+
+                # Action 5 and 6: Failback (Arrow only)
+                elif arrow:
+                    distance = arrow[0] - fish_pos[0]
+                    if distance < -6:
+                        set_mouse(False)
+                        ToolTip("Tracking Direction: > (Fast)", 4)
+                    else:
+                        set_mouse(True)
+                        ToolTip("Tracking Direction: < (Fast)", 4)
+
+                # Action 7 (hidden): No bar, no arrow
+                else:
+                    set_mouse(False)
+                    ToolTip("Tracking Direction: < (None)", 4)
+
+                # --- Draw fish and arrow box ---
+                if left_edge is None and right_edge is None and arrow is not None:
+                    arrow_right = arrow[0] + 15
+                    ax1 = arrow[0] - CANVAS_X_OFFSET
+                    ax2 = arrow_right - CANVAS_X_OFFSET
+                    draw_box(ax1, 15, ax2, 35, "#000000", "yellow")
+
+                draw_box(cx1, 10, cx2, 40, "#000000", "red")
+                # Debug code
+                time.sleep(scan_fps)
+            elif progress_bar_size >= 140:
+                # Slow mode for large progress bar
+                set_mouse(False)
+                time.sleep(0.25)
+                set_mouse(True)
+                time.sleep(0.2)
+            else:
+                clear_minigame()
+                img = capture_region(520, 860, 1400, 910)
+                fish_pos = pixel_search_image(img, 570, 860, (fish_b, fish_g, fish_r), fish_tolerance)  # Get fish position
+                if fish_pos is None:
+                    fish_miss_count += 1
+
+                    # release mouse briefly to avoid stuck input
+                    set_mouse(False)
+                    mouse.release(MouseButton.left)
+
+                    if fish_miss_count >= MAX_FISH_MISSES:
+                        set_mouse(False)
+                        time.sleep(restart_delay / 2)
+                        mouse.position = (960, 300)
+                        mouse.release(MouseButton.left)
+                        time.sleep(restart_delay / 2)
+                        restart_macro()
+                        return
+
+                    time.sleep(0.02)
+                    continue
+                else:
+                    fish_miss_count = 0
+
+                left_edge, right_edge = get_bar_edges_image(img, 570, 860, bar_b, bar_g, bar_r, rightbar_b, rightbar_g, rightbar_r, bar_tolerance) # Get bar edges
+                arrow = None
+                arrow_right = None
+                arrow = pixel_search_image(img, 570, 860, (arrow_b, arrow_g, arrow_r), arrow_tolerance)  # Get arrow position
+                # Advanced arrow tracking: use arrow position with contour-based detection
+                if stability_checkbox_vars["advanced_arrow_tracking"].get() and arrow:
+                    try:
+                        # Use OpenCV-based centroid detection for more accurate arrow tracking
+                        arrow_centroid = find_arrow_centroid_cv(img, arrow_b, arrow_g, arrow_r, arrow_tolerance)
+                        
+                        if arrow_centroid is not None:
+                            # Estimate box edges based on arrow position and hold state
+                            estimated_left, estimated_right = estimate_box_from_arrow(
+                                arrow_centroid, 
+                                is_holding=mouse_down,
+                                last_box_size=bar_size
+                            )
+                            
+                            # Use estimated edges if bar edges weren't reliable
+                            if estimated_left is not None and estimated_right is not None:
+                                if left_edge is None or right_edge is None:
+                                    left_edge = estimated_left
+                                    right_edge = estimated_right
+                                else:
+                                    # Blend with detected bar edges for robustness
+                                    left_edge = int(0.7 * left_edge + 0.3 * estimated_left)
+                                    right_edge = int(0.7 * right_edge + 0.3 * estimated_right)
+                    except Exception:
+                        # Fall back silently if contour detection fails
+                        pass
+                bar_size = abs(right_edge - left_edge) if left_edge and right_edge else None
+                control = (bar_size / 777) - 0.3 if bar_size else 0
+                control = (round(control * 100)) / 100.0
+                deadzone = bar_size * left_right_deadzone if bar_size else None
+                ToolTip(f"Control: {control}", 5)
+                if bar_size:
+                    max_left = 570 + deadzone
+                    max_right = 1350 - deadzone
+                else:
+                    max_left = None
+                    max_right = None
+                fish_edge = fish_pos[0] + 10
+                # convert screen → canvas space
+                cx1 = fish_pos[0] - CANVAS_X_OFFSET
+                cx2 = fish_edge - CANVAS_X_OFFSET
+                # Action 1 and 2: Max left and max right
+                if max_left and fish_pos[0] <= max_left:
+                    set_mouse(False)
+                    # Draw deadzones and tooltips
+                    ToolTip("Direction: Max Left", 4)
+                    dx1 = max_left - 20 - CANVAS_X_OFFSET
+                    dx2 = max_left - CANVAS_X_OFFSET
+                    draw_box(dx1, 10, dx2, 40, "#000000", "blue")
+
+                elif max_right and fish_pos[0] >= max_right:
+                    set_mouse(True)
+                    # Draw deadzones and tooltips
+                    ToolTip("Direction: Max Right", 4)
+                    dx3 = max_right - CANVAS_X_OFFSET
+                    dx4 = max_right + 20 - CANVAS_X_OFFSET
+                    draw_box(dx3, 10, dx4, 40, "#000000", "blue")
+
+                # Action 0, 3 and 4: PID Control
+                elif left_edge is not None and right_edge is not None:
+                    bar_center = (left_edge + right_edge) // 2
+                    bx1 = left_edge - CANVAS_X_OFFSET
+                    bx2 = right_edge - CANVAS_X_OFFSET
+                    draw_box(bx1, 10, bx2, 40, "#000000", "green")
+                    # Draw deadzones
+                    dx1 = max_left - 20 - CANVAS_X_OFFSET
+                    dx2 = max_left - CANVAS_X_OFFSET
+                    draw_box(dx1, 10, dx2, 40, "#000000", "blue")
+                    dx3 = max_right - CANVAS_X_OFFSET
+                    dx4 = max_right + 20 - CANVAS_X_OFFSET
+                    draw_box(dx3, 10, dx4, 40, "#000000", "blue")
+                    # PID calculation
+                    error = fish_pos[0] - bar_center
+                    control = pid_control(error)
+
+                    # Map PID output to mouse clicks using hysteresis to avoid jitter/oscillation
+                    control = max(-100, min(100, control))
+
+                    # Hysteresis thresholds (tune if necessary)
+                    on_thresh = velocity_smoothing_left
+                    off_thresh = velocity_smoothing_right
+
+                    if control > on_thresh:
+                        set_mouse(True)
+                        ToolTip("Tracking Direction: >", 4)
+                    elif control < -on_thresh:
+                        set_mouse(False)
+                        ToolTip("Tracking Direction: <", 4)
+                    else:
+                        # Action 0: Within deadzone
+                        if abs(control) < off_thresh:
+                            set_mouse(False)
+                            ToolTip("Stabilizing", 4)
+
+                # Action 5 and 6: Failback (Arrow only)
+                elif arrow:
+                    distance = arrow[0] - fish_pos[0]
+                    if distance < -6:
+                        set_mouse(distance < -6)
+                        ToolTip("Tracking Direction: > (Fast)", 4)
+                    else:
+                        set_mouse(distance < -6)
+                        ToolTip("Tracking Direction: < (Fast)", 4)
+
+                # Action 7 (hidden): No bar, no arrow
+                else:
+                    set_mouse(False)
+                    ToolTip("Tracking Direction: < (None)", 4)
+
+                # --- Draw fish and arrow box ---
+                if left_edge is None and right_edge is None and arrow is not None:
+                    arrow_right = arrow[0] + 15
+                    ax1 = arrow[0] - CANVAS_X_OFFSET
+                    ax2 = arrow_right - CANVAS_X_OFFSET
+                    draw_box(ax1, 15, ax2, 35, "#000000", "yellow")
+
+                draw_box(cx1, 10, cx2, 40, "#000000", "red")
+                # Debug code
+                time.sleep(scan_fps)
     except Exception as e:
         set_mouse(False)
         macro_running = False
@@ -1297,7 +1454,7 @@ bottom_frame.pack(fill="x", pady=10)
 
 Label(
     bottom_frame,
-    text="V14 | Config:",
+    text="V1 | Config:",
     font=("Segoe UI", 9),
     bg="#1d1d1d",
     fg="white"
