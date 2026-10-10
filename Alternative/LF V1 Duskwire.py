@@ -63,7 +63,7 @@ try:
 except:
     pass
 
-window.title("Longest Fisching V1")
+window.title("Solar Fishing V1")
 window.geometry("800x550")
 
 window.config(bg="#1d1d1d")
@@ -336,7 +336,7 @@ def show_overlay_simple():
     # === Text ===
     Label(
         overlay,
-        text="Fisch Macro V1",
+        text="Solar Fishing V1",
         fg="#00c8ff",
         bg="black",
         font=("Segoe UI", 12, "bold")
@@ -739,9 +739,9 @@ def get_bar_edges_image(img, start_x, start_y, bar_b=255, bar_g=255, bar_r=255, 
     bar_b_tolerance = bar_b - tolerance
     bar_g_tolerance = bar_g - tolerance
     bar_r_tolerance = bar_r - tolerance
-    rightbar_b_tolerance = bar_b - tolerance
-    rightbar_g_tolerance = bar_g - tolerance
-    rightbar_r_tolerance = bar_r - tolerance
+    rightbar_b_tolerance = bar_b - tolerance - 1
+    rightbar_g_tolerance = bar_g - tolerance - 1
+    rightbar_r_tolerance = bar_r - tolerance - 1
     left_edge = None
     right_edge = None
 
@@ -817,43 +817,6 @@ def estimate_box_from_arrow(arrow_x, is_holding, last_box_size=None, default_box
         right_edge = arrow_x + box_size
     
     return left_edge, right_edge
-
-def parse_bbbgggrrr(color_str):
-    """
-    Accepts:
-    - 'BBB-GGG-RRR'
-    - 'BBBGGGRRR'
-    - '#RRGGBB'
-
-    Returns:
-    (R, G, B)
-    """
-    try:
-        s = color_str.strip()
-
-        # --- HEX FORMAT: #RRGGBB ---
-        if s.startswith("#") and len(s) == 7:
-            r = int(s[1:3], 16)
-            g = int(s[3:5], 16)
-            b = int(s[5:7], 16)
-            print(r, g, b)
-            return (r, g, b)
-
-        # --- DECIMAL FORMAT: BBB-GGG-RRR or BBBGGGRRR ---
-        s = s.replace("-", "")
-        if len(s) != 9 or not s.isdigit():
-            raise ValueError
-
-        b = int(s[0:3])
-        g = int(s[3:6])
-        r = int(s[6:9])
-        print(r, g, b)
-        return (r, g, b)
-
-    except Exception:
-        # Safe fallback (white)
-        print(255, 255, 255, "(Failed)")
-        return (255, 255, 255)
 
 def capture_region(start_x, start_y, end_x, end_y):
     if capture_mode_var.get() == "Windows Capture":
@@ -986,11 +949,12 @@ def macro_loop(event=None):
     fish_i = fish_entry[7]
     fish_j = fish_entry[8]
     fish_r = int(fish_h + fish_i + fish_j)
+    num1 = 0
     bar_tolerance = int(bar_tolerance_entry.get())
     arrow_tolerance = int(arrow_tolerance_entry.get())
     fish_tolerance = int(fish_tolerance_entry.get())
     arrow_sampler = ArrowEdgeSampler()
-    ToolTip("Fisch V1 by Longest", 1)
+    ToolTip("Solar Fishing V1 by Longest", 1)
     ToolTip("Press F7 to stop", 2)
     ToolTip("Beginning Alignment", 3)
     try:
@@ -1132,8 +1096,8 @@ def macro_loop(event=None):
                 continue
             else:
                 fish_miss_count = 0
-
             left_edge, right_edge = get_bar_edges_image(img, 570, 860, bar_b, bar_g, bar_r, rightbar_b, rightbar_g, rightbar_r, bar_tolerance) # Get bar edges
+            right_edge = left_edge + 78
             arrow = None
             arrow_right = None
             arrow = pixel_search_image(img, 570, 860, (arrow_b, arrow_g, arrow_r), arrow_tolerance)  # Get arrow position
@@ -1258,7 +1222,7 @@ def macro_loop(event=None):
     except Exception as e:
         set_mouse(False)
         macro_running = False
-        print("Error: ", e)
+        print("TypeError: ", e)
         window.after(0, clear_minigame)  
         window.after(0, stop_clicked)
 # Key binds
@@ -1325,8 +1289,8 @@ start_btn = Button(
     text="Start",
     command=lambda: window.after(0, start_clicked),
     font=("Segoe UI", 9),  # Font
-    width=12,                       # Button width
-    height=2,                       # Button height
+    width=12,
+    height=2,
     bg="#f0f0f0",                 # Button color
     fg="black",                     # Button text color
     activebackground="#f0f0f0",
@@ -1340,8 +1304,8 @@ save_btn = Button(
     text="Save Settings",
     command=lambda: save_settings(config_var.get()),
     font=("Segoe UI", 9),  # Font
-    width=12,                       # Button width
-    height=2,                       # Button height
+    width=12,
+    height=2,
     bg="#f0f0f0",                 # Button color
     fg="black",                     # Button text color
     activebackground="#f0f0f0",
@@ -1354,8 +1318,8 @@ load_btn = Button(
     text="Load Settings",
     command=lambda: load_settings(config_var.get()),
     font=("Segoe UI", 9),  # Font
-    width=12,                       # Button width
-    height=2,                       # Button height
+    width=12,
+    height=2,
     bg="#f0f0f0",                 # Button color
     fg="black",                     # Button text color
     activebackground="#f0f0f0",
@@ -1369,8 +1333,8 @@ stop_btn = Button(
     text="Stop",
     command=stop_clicked,
     font=("Segoe UI", 9),  # Font
-    width=12,                       # Button width
-    height=2,                       # Button height
+    width=12,
+    height=2,
     bg="#f0f0f0",                 # Button color
     fg="black",                     # Button text color
     activebackground="#f0f0f0",
@@ -1476,7 +1440,7 @@ tab3.grid_columnconfigure(0, weight=1)
 create_label(tab3, "Minigame Settings", 0, 0, fg="#e87b07", font=("Segoe UI", 9, "bold"), pady=10)
 
 # Fish Settings
-fish_settings_group = create_group(tab3, "Color Options (BBB-GGG-RRR)", 1, fg="#e87b07")
+fish_settings_group = create_group(tab3, "Color Options (RRRGGGBBB)", 1, fg="#e87b07")
 fish_settings_group.grid(sticky="nsew")
 
 create_label(fish_settings_group, "Left Bar:", 0, 0)

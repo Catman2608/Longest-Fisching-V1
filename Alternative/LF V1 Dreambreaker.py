@@ -66,7 +66,7 @@ try:
 except:
     pass
 
-window.title("Fisch V1")
+window.title("Solar Fishing V1")
 window.geometry("800x550")
 
 window.config(bg="#1d1d1d")
@@ -309,7 +309,7 @@ def show_overlay_simple():
     # === Text ===
     Label(
         overlay,
-        text="Fisch Macro V1",
+        text="Solar Fishing V1",
         fg="#00c8ff",
         bg="black",
         font=("Segoe UI", 12, "bold")
@@ -982,7 +982,7 @@ def macro_loop(event=None):
     bar_tolerance = int(bar_tolerance_entry.get())
     arrow_tolerance = int(arrow_tolerance_entry.get())
     fish_tolerance = int(fish_tolerance_entry.get())
-    ToolTip("Fisch V1 by Longest", 1)
+    ToolTip("Solar Fishing V1 by Longest", 1)
     ToolTip("Press F7 to stop", 2)
     ToolTip("Beginning Alignment", 3)
     try:
@@ -1480,8 +1480,8 @@ start_btn = Button(
     text="Start",
     command=lambda: window.after(0, start_clicked),
     font=("Segoe UI", 9),  # Font
-    width=12,                       # Button width
-    height=2,                       # Button height
+    width=12,
+    height=2,
     bg="#f0f0f0",                 # Button color
     fg="black",                     # Button text color
     activebackground="#f0f0f0",
@@ -1495,8 +1495,8 @@ save_btn = Button(
     text="Save Settings",
     command=lambda: save_settings(config_var.get()),
     font=("Segoe UI", 9),  # Font
-    width=12,                       # Button width
-    height=2,                       # Button height
+    width=12,
+    height=2,
     bg="#f0f0f0",                 # Button color
     fg="black",                     # Button text color
     activebackground="#f0f0f0",
@@ -1509,8 +1509,8 @@ load_btn = Button(
     text="Load Settings",
     command=lambda: load_settings(config_var.get()),
     font=("Segoe UI", 9),  # Font
-    width=12,                       # Button width
-    height=2,                       # Button height
+    width=12,
+    height=2,
     bg="#f0f0f0",                 # Button color
     fg="black",                     # Button text color
     activebackground="#f0f0f0",
@@ -1524,8 +1524,8 @@ stop_btn = Button(
     text="Stop",
     command=stop_clicked,
     font=("Segoe UI", 9),  # Font
-    width=12,                       # Button width
-    height=2,                       # Button height
+    width=12,
+    height=2,
     bg="#f0f0f0",                 # Button color
     fg="black",                     # Button text color
     activebackground="#f0f0f0",
